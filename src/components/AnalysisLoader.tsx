@@ -60,6 +60,16 @@ export const AnalysisLoader: React.FC<AnalysisLoaderProps> = ({ currentLanguage 
           <p className="text-xs text-slate-400 mt-1">
             Running multi-layer vernacular fraud screening engine
           </p>
+
+          {/* Linear Animated Progress Bar */}
+          <div className="w-full bg-slate-800/80 h-2 rounded-full overflow-hidden mt-4 mb-2">
+            <motion.div
+              className="h-full bg-gradient-to-r from-sky-400 via-teal-300 to-sky-400"
+              initial={{ width: '15%' }}
+              animate={{ width: `${Math.min(100, (currentStep + 1) * 20)}%` }}
+              transition={{ duration: 0.35, ease: 'easeOut' }}
+            />
+          </div>
         </div>
 
         {/* Step-by-step intelligence checklist */}

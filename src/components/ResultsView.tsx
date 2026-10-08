@@ -323,22 +323,7 @@ Report generated via ScamShield: AI-powered Vernacular Scam Protection
         </div>
       </div>
 
-      {/* AI Explanation in Vernacular (English, Kannada, Hindi) */}
-      <AIExplanation
-        explanation={result.explanation}
-        currentLanguage={currentLanguage}
-        onLanguageChange={onLanguageChange}
-      />
-
-      {/* Safety Actions: What to DO & What NOT to do */}
-      <SafetyActions
-        actions={result.actions}
-        localizedActions={result.localized_actions}
-        currentLanguage={currentLanguage}
-        isHighRisk={isHighRisk}
-      />
-
-      {/* Why ScamShield Flagged This */}
+      {/* 2. Why ScamShield Flagged This (Reasons) */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-xl font-bold text-white tracking-tight">
@@ -356,15 +341,30 @@ Report generated via ScamShield: AI-powered Vernacular Scam Protection
         </div>
       </div>
 
-      {/* Explainable Risk Weight Breakdown */}
+      {/* 3. Explainable Risk Weight Breakdown */}
       <RiskBreakdown factors={result.reasons} />
 
-      {/* Detected URLs & Links */}
+      {/* 4. Detected URLs & Suspicious Links */}
       {result.detected_urls && result.detected_urls.length > 0 && (
         <URLAnalysis urls={result.detected_urls} />
       )}
 
-      {/* Emergency Helpline Banner (1930) */}
+      {/* 5. What You MUST NOT Do & Protect Yourself */}
+      <SafetyActions
+        actions={result.actions}
+        localizedActions={result.localized_actions}
+        currentLanguage={currentLanguage}
+        isHighRisk={isHighRisk}
+      />
+
+      {/* 6. AI Explanation in Vernacular (English, Kannada, Hindi) */}
+      <AIExplanation
+        explanation={result.explanation}
+        currentLanguage={currentLanguage}
+        onLanguageChange={onLanguageChange}
+      />
+
+      {/* 7. Emergency Helpline Banner (1930) */}
       <EmergencyHelpline currentLanguage={currentLanguage} />
 
       {/* Action Footer: Analyze Another Message CTA */}
