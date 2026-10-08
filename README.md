@@ -149,14 +149,29 @@ SCAMSHIELD/
 ### Prerequisites
 - **Node.js:** v18+ (tested on v24.21.0)
 - **npm:** v9+ (tested on v11.19.0)
+- **Python:** v3.10+ (tested on v3.11)
+- **Tesseract-OCR:** (Optional, for screenshot OCR): Install binary and ensure `tesseract` is on PATH or set `TESSERACT_CMD`.
 
 ### 1. Installation
-Clone the repository and install dependencies in the root directory:
 
+#### Frontend:
+Install frontend dependencies in the project root:
 ```bash
-git clone -b Frontend https://github.com/zer0neo/SCAMSHIELD.git
-cd SCAMSHIELD
 npm install
+```
+
+#### Backend:
+Set up Python environment and install backend requirements:
+```bash
+cd backend
+python -m venv venv
+
+# Windows:
+venv\Scripts\activate
+# Linux/macOS:
+source venv/bin/activate
+
+pip install -r requirements.txt
 ```
 
 ### 2. Environment Configuration
@@ -172,32 +187,56 @@ Environment options in `.env`:
 # Backend FastAPI endpoint URL:
 VITE_API_URL=http://localhost:8000
 
-# Set 'true' for standalone hackathon demos / mock data mode,
-# or 'false' to route calls directly to the FastAPI service:
-VITE_USE_MOCK_API=true
+# Set 'false' for live FastAPI backend (DEFAULT / PRODUCTION),
+# or 'true' to use local offline mock data:
+VITE_USE_MOCK_API=false
 ```
 
-### 3. Run Development Server
-Start the local Vite development server:
+### 3. Run Development Servers
 
+#### Terminal 1 — Backend (FastAPI):
+```bash
+cd backend
+# Windows:
+venv\Scripts\activate
+# Linux/macOS:
+source venv/bin/activate
+
+uvicorn app.main:app --reload --port 8000
+```
+Backend will be live at `http://localhost:8000`. Interactive Swagger docs available at `http://localhost:8000/docs`.
+
+#### Terminal 2 — Frontend (Vite + React):
 ```bash
 npm run dev
 ```
-
-The application will be available at `http://localhost:3000`.
+Frontend will be live at `http://localhost:3000`.
 
 ### 4. Build for Production
-To typecheck and build optimized static assets:
 
+#### Frontend Build:
+To typecheck and build optimized static assets:
 ```bash
 npm run build
 ```
 
 To preview the production bundle locally:
-
 ```bash
 npm run preview
 ```
+
+### 5. Deployment Guide
+
+- **Frontend (Vercel / Netlify / Cloudflare Pages):**
+  - Build command: `npm run build`
+  - Output directory: `dist`
+  - Environment variable: `VITE_API_URL=https://<your-backend-api-url>`
+- **Backend (Render / Railway / Fly.io):**
+  - Root directory: `backend`
+  - Build command: `pip install -r requirements.txt`
+  - Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+  - Environment variable: `TESSERACT_CMD=/usr/bin/tesseract` (ensure Tesseract packages `tesseract-ocr tesseract-ocr-hin tesseract-ocr-kan` are installed via system package manager).
+
 
 ---
 

@@ -17,6 +17,7 @@ export function App() {
     setCurrentLanguage,
     isLoading,
     analysisResult,
+    error,
     performAnalyzeMessage,
     performAnalyzeScreenshot,
     performAnalyzeUpi,
@@ -94,6 +95,7 @@ export function App() {
               onAnalyzeScreenshot={performAnalyzeScreenshot}
               onAnalyzeUpi={performAnalyzeUpi}
               isLoading={isLoading}
+              error={error}
             />
 
             {/* How It Works Pipeline */}

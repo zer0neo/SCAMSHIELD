@@ -34,10 +34,10 @@ export const RiskScore: React.FC<RiskScoreProps> = ({
     return () => clearInterval(timer);
   }, [score]);
 
-  // Determine color themes
-  const isScam = classification === 'SCAM' || score > 60;
-  const isSuspicious = !isScam && (classification === 'SUSPICIOUS' || score > 30);
-  const isSafe = !isScam && !isSuspicious;
+  // Backend classification is the source of truth
+  const isScam = classification === 'SCAM';
+  const isSuspicious = classification === 'SUSPICIOUS';
+  const isSafe = classification === 'SAFE';
 
   const strokeColor = isScam
     ? '#EF4444' // red
@@ -113,11 +113,11 @@ export const RiskScore: React.FC<RiskScoreProps> = ({
 
       {/* Numerical benchmark scale */}
       <div className="mt-4 flex items-center gap-2 text-[11px] text-slate-400 font-mono">
-        <span className={score <= 30 ? 'text-emerald-400 font-bold' : ''}>0-30 Safe</span>
+        <span className={isSafe ? 'text-emerald-400 font-bold' : ''}>&lt;35 Safe</span>
         <span>•</span>
-        <span className={score > 30 && score <= 60 ? 'text-amber-400 font-bold' : ''}>31-60 Suspicious</span>
+        <span className={isSuspicious ? 'text-amber-400 font-bold' : ''}>35-69 Suspicious</span>
         <span>•</span>
-        <span className={score > 60 ? 'text-rose-400 font-bold' : ''}>61-100 Scam</span>
+        <span className={isScam ? 'text-rose-400 font-bold' : ''}>≥70 Scam</span>
       </div>
     </div>
   );

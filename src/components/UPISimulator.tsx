@@ -5,7 +5,7 @@ import { translations } from '../translations/uiTranslations';
 
 interface UPISimulatorProps {
   currentLanguage: SupportedLanguage;
-  onAnalyzeUpi: (amount: string, vpa: string, note: string) => void;
+  onAnalyzeUpi: (amount: string, vpa: string, note: string, senderName?: string) => void;
   isLoading: boolean;
 }
 
@@ -22,7 +22,7 @@ export const UPISimulator: React.FC<UPISimulatorProps> = ({
   const t = translations[currentLanguage];
 
   const handleAnalyze = () => {
-    onAnalyzeUpi(amount, vpa, `${senderName}: ${note}`);
+    onAnalyzeUpi(amount, vpa, note, senderName);
   };
 
   const handleResetToPreset = (type: 'lottery' | 'olx' | 'refund') => {

@@ -34,11 +34,11 @@ export function useAnalysis(initialLanguage: SupportedLanguage = 'en') {
     }
   };
 
-  const performAnalyzeUpi = async (amount: string, vpa: string, note: string) => {
+  const performAnalyzeUpi = async (amount: string, vpa: string, note: string, senderName?: string) => {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await analyzeUPIRequest(amount, vpa, note, currentLanguage);
+      const result = await analyzeUPIRequest(amount, vpa, note, senderName, currentLanguage);
       setAnalysisResult(result);
     } catch (err: any) {
       setError(err?.message || 'Failed to analyze UPI request');

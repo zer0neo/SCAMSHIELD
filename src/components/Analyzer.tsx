@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { AlertCircle } from 'lucide-react';
 import { SupportedLanguage } from '../types/analysis';
 import { translations } from '../translations/uiTranslations';
 import { AnalyzerTabs, AnalyzerTabType } from './AnalyzerTabs';
@@ -11,8 +12,9 @@ interface AnalyzerProps {
   onLanguageChange: (lang: SupportedLanguage) => void;
   onAnalyzeMessage: (text: string) => void;
   onAnalyzeScreenshot: (file: File) => void;
-  onAnalyzeUpi: (amount: string, vpa: string, note: string) => void;
+  onAnalyzeUpi: (amount: string, vpa: string, note: string, senderName?: string) => void;
   isLoading: boolean;
+  error?: string | null;
 }
 
 export const Analyzer: React.FC<AnalyzerProps> = ({
@@ -22,6 +24,7 @@ export const Analyzer: React.FC<AnalyzerProps> = ({
   onAnalyzeScreenshot,
   onAnalyzeUpi,
   isLoading,
+  error,
 }) => {
   const [activeTab, setActiveTab] = useState<AnalyzerTabType>('message');
   const t = translations[currentLanguage];
@@ -42,6 +45,12 @@ export const Analyzer: React.FC<AnalyzerProps> = ({
 
         {/* Card Container */}
         <div className="rounded-3xl bg-slate-900/80 border border-slate-800/90 p-5 sm:p-8 shadow-2xl backdrop-blur-xl relative">
+          {error && (
+            <div className="mb-5 flex items-center gap-2.5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs sm:text-sm">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+              <span>{error}</span>
+            </div>
+          )}
           
           {/* Tabs */}
           <AnalyzerTabs

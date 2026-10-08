@@ -1,4 +1,4 @@
-import { AnalysisResult, SupportedLanguage } from '../types/analysis';
+import { AnalysisResult, SupportedLanguage, RiskFactor, DetectedURL } from '../types/analysis';
 import {
   mockScamResult,
   mockSuspiciousResult,
@@ -6,15 +6,35 @@ import {
   mockUpiCollectScamResult,
 } from '../data/mockResults';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-const USE_MOCK_API = import.meta.env.VITE_USE_MOCK_API !== 'false';
+// When VITE_API_URL is configured (e.g. 'http://localhost:8000' or production URL), use it.
+// In local dev without explicit URL, relative '' will route through Vite's '/api' proxy.
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
-// Helper to simulate realistic network delay for smooth UI feedback
+// Mock mode is disabled by default in real application; only active when explicitly 'true'
+const USE_MOCK_API = import.meta.env.VITE_USE_MOCK_API === 'true';
+
+// Helper to simulate network delay when mock mode is explicitly requested
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Heuristic fallback for realistic local screening when mock mode is active
- * or if backend connection fails.
+ * Human-readable mapping for backend scam categories
+ */
+const CATEGORY_DISPLAY_MAP: Record<string, string> = {
+  OTP_PHISHING: 'OTP & Credential Phishing',
+  KYC_PHISHING: 'Bank KYC Phishing',
+  BANK_IMPERSONATION: 'Bank & Financial Impersonation',
+  UPI_PAYMENT_SCAM: 'UPI Payment & Collect Fraud',
+  LOTTERY_SCAM: 'Lottery & Prize Scam',
+  INVESTMENT_SCAM: 'Fake Investment & Trading Scheme',
+  JOB_SCAM: 'Fake Job & Recruitment Offer',
+  DELIVERY_SCAM: 'Parcel & Delivery Redirection Trap',
+  GOVERNMENT_IMPERSONATION: 'Government Agency Impersonation',
+  PHISHING: 'Malicious Link & Phishing Trap',
+  GENERAL_SCAM: 'Suspicious Fraudulent Communication',
+};
+
+/**
+ * Heuristic fallback only used when mock mode is explicitly enabled
  */
 function getMatchingMockResult(input: string): AnalysisResult {
   const lower = input.toLowerCase();
@@ -60,7 +80,7 @@ function getMatchingMockResult(input: string): AnalysisResult {
     lower.includes('कलेक्ट') ||
     lower.includes('रिफंड') ||
     lower.includes('यूपीआई') ||
-    lower.includes('कಲೆಕ್ಟ್') ||
+    lower.includes('ಕಲೆಕ್ಟ್') ||
     lower.includes('ಮರುಪಾವತಿ') ||
     lower.includes('ಯುಪಿಐ')
   ) {
@@ -112,7 +132,6 @@ function getMatchingMockResult(input: string): AnalysisResult {
     };
   }
 
-  // Default to High Risk KYC phishing for strong hackathon demonstration
   return {
     ...mockScamResult,
     id: `scan-${Date.now()}`,
@@ -122,165 +141,324 @@ function getMatchingMockResult(input: string): AnalysisResult {
 }
 
 /**
- * Normalizes backend response to standard AnalysisResult shape
+ * Normalizes the real backend response into the frontend AnalysisResult shape.
+ * Preserves backend as the single source of truth for:
+ * - risk_score
+ * - verdict (classification)
+ * - category (scam_type)
+ * - score_breakdown (reasons)
+ * - explanation
+ * - recommended_action (actions)
+ * - extracted_text (input_preview)
  */
-function normalizeBackendResponse(raw: any, fallbackInput: string): AnalysisResult {
-  // If backend returned standard format
-  if (raw && (raw.risk_score !== undefined || raw.classification)) {
-    return {
-      id: raw.id || `scan-${Date.now()}`,
-      analyzed_at: raw.analyzed_at || new Date().toISOString(),
-      input_type: raw.input_type || 'text',
-      input_preview: raw.input_preview || fallbackInput.slice(0, 150),
-      risk_score: typeof raw.risk_score === 'number' ? raw.risk_score : 85,
-      risk_level: raw.risk_level || (raw.risk_score > 60 ? 'HIGH' : raw.risk_score > 30 ? 'MEDIUM' : 'LOW'),
-      classification: raw.classification || (raw.risk_score > 60 ? 'SCAM' : raw.risk_score > 30 ? 'SUSPICIOUS' : 'SAFE'),
-      scam_type: raw.scam_type || 'Suspicious Financial Communication',
-      summary: raw.summary || 'Potential fraud indicators identified in the submitted text.',
-      reasons: Array.isArray(raw.reasons) ? raw.reasons : mockScamResult.reasons,
-      actions: raw.actions || mockScamResult.actions,
-      explanation: raw.explanation || mockScamResult.explanation,
-      detected_urls: Array.isArray(raw.detected_urls) ? raw.detected_urls : [],
-      localized_summary: raw.localized_summary,
-      localized_actions: raw.localized_actions,
-    };
+export function normalizeBackendResponse(raw: any, fallbackInput: string): AnalysisResult {
+  // 1. Classification & Verdict: Backend is the source of truth
+  const rawVerdict = String(raw?.verdict || raw?.classification || '').toUpperCase();
+  const classification =
+    rawVerdict === 'SCAM' || rawVerdict === 'SUSPICIOUS' || rawVerdict === 'SAFE'
+      ? rawVerdict
+      : raw?.risk_score >= 70
+      ? 'SCAM'
+      : raw?.risk_score >= 35
+      ? 'SUSPICIOUS'
+      : 'SAFE';
+
+  // 2. Risk score & derived risk level
+  const risk_score = typeof raw?.risk_score === 'number' ? Math.min(100, Math.max(0, raw.risk_score)) : 0;
+  const risk_level = classification === 'SCAM' ? 'HIGH' : classification === 'SUSPICIOUS' ? 'MEDIUM' : 'LOW';
+
+  // 3. Category / Scam Type
+  const categoryKey = String(raw?.category || raw?.scam_type || '');
+  const scam_type = CATEGORY_DISPLAY_MAP[categoryKey] || categoryKey || (
+    classification === 'SAFE' ? 'Verified Communication' : 'Suspicious Financial Communication'
+  );
+
+  // 4. Input preview & extracted text
+  const previewText = String(raw?.extracted_text || raw?.message || fallbackInput || '');
+  const input_preview = previewText.length > 200 ? previewText.slice(0, 200) + '...' : previewText;
+
+  // 5. Reasons / Signal weight breakdown from backend score_breakdown
+  let reasons: RiskFactor[] = [];
+  if (raw?.score_breakdown && typeof raw.score_breakdown === 'object' && Object.keys(raw.score_breakdown).length > 0) {
+    reasons = Object.entries(raw.score_breakdown).map(([title, points]) => {
+      const scoreNum = typeof points === 'number' ? points : Number(points) || 0;
+      const severity: 'LOW' | 'MEDIUM' | 'HIGH' =
+        scoreNum >= 25 ? 'HIGH' : scoreNum >= 15 ? 'MEDIUM' : 'LOW';
+      return {
+        type: title.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+        title,
+        description: `Backend detector identified "${title}", adding +${scoreNum} risk points.`,
+        severity,
+        score: scoreNum,
+      };
+    });
+  } else if (Array.isArray(raw?.reasons) && raw.reasons.length > 0) {
+    reasons = raw.reasons;
+  } else if (Array.isArray(raw?.red_flags) && raw.red_flags.length > 0) {
+    reasons = raw.red_flags.map((flag: string) => ({
+      type: flag.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+      title: flag,
+      description: `Indicator flagged by threat model: ${flag}.`,
+      severity: classification === 'SCAM' ? 'HIGH' : 'MEDIUM',
+      score: classification === 'SCAM' ? 20 : 10,
+    }));
+  } else if (classification === 'SAFE') {
+    reasons = [
+      {
+        type: 'safe_verified',
+        title: 'No Immediate Threat Signals',
+        description: 'No known scam keywords, coercive urgency, phishing links, or unverified requests were detected.',
+        severity: 'LOW',
+        score: 0,
+      },
+    ];
+  } else {
+    reasons = [
+      {
+        type: 'general_risk',
+        title: 'Suspicious Communication Patterns',
+        description: 'Heuristic evaluation identified patterns that deviate from verified organizational communication.',
+        severity: classification === 'SCAM' ? 'HIGH' : 'MEDIUM',
+        score: risk_score,
+      },
+    ];
   }
 
-  // If backend returned simple message_received skeleton (like default test route)
-  return getMatchingMockResult(fallbackInput);
+  // 6. Recommended Actions from backend recommended_action
+  const rawAction = typeof raw?.recommended_action === 'string' ? raw.recommended_action.trim() : '';
+  let doActions: string[] = [];
+  let dontActions: string[] = [];
+
+  if (raw?.actions && Array.isArray(raw.actions.do) && Array.isArray(raw.actions.dont)) {
+    doActions = raw.actions.do;
+    dontActions = raw.actions.dont;
+  } else if (classification === 'SAFE') {
+    doActions = [
+      rawAction || 'Standard communication verified. No immediate action required.',
+      'Always verify unsolicited banking requests through official banking apps.',
+    ];
+    dontActions = [
+      'Do not share net banking passwords, MPIN, or card CVVs with anyone.',
+    ];
+  } else {
+    dontActions = [
+      rawAction || 'Do not click external links, make payments, or interact with this sender.',
+      'Do not share any OTP (One-Time Password) or net-banking credentials.',
+      'Never enter your UPI PIN to receive money, cashbacks, or refunds.',
+    ];
+    doActions = [
+      'Contact your bank or merchant directly through their official app or verified helpline.',
+      'Report financial cyber fraud immediately to the National Cyber Crime Helpline at 1930.',
+    ];
+  }
+
+  // 7. Explanation: Ensure MultilingualExplanation always has valid string content for all keys
+  const rawExplanation = typeof raw?.explanation === 'string' ? raw.explanation.trim() : '';
+  const explanation = (raw?.explanation && typeof raw.explanation === 'object')
+    ? {
+        english: raw.explanation.english || rawExplanation || 'Threat screening completed.',
+        kannada: raw.explanation.kannada || rawExplanation || 'ಬ್ಯಾಕೆಂಡ್‌ನಿಂದ ಬೆದರಿಕೆ ತಪಾಸಣೆ ಪೂರ್ಣಗೊಂಡಿದೆ.',
+        hindi: raw.explanation.hindi || rawExplanation || 'धोखाधड़ी जांच पूरी हो गई है।',
+      }
+    : {
+        english: rawExplanation || 'Threat screening completed by the backend detector.',
+        kannada: rawExplanation || 'ಬ್ಯಾಕೆಂಡ್‌ನಿಂದ ಬೆದರಿಕೆ ತಪಾಸಣೆ ಪೂರ್ಣಗೊಂಡಿದೆ.',
+        hindi: rawExplanation || 'संदेश का विश्लेषण बैकएंड डिटेक्टर द्वारा पूरा कर लिया गया है।',
+      };
+
+  // 8. Summary: Clear, human-readable summary
+  const summary = raw?.summary || rawExplanation || (
+    classification === 'SCAM'
+      ? `Critical warning: ${scam_type} detected with a threat risk score of ${risk_score}/100.`
+      : classification === 'SUSPICIOUS'
+      ? `Caution: Suspicious patterns detected with a threat risk score of ${risk_score}/100.`
+      : `Verified: Standard communication with a low threat risk score of ${risk_score}/100.`
+  );
+
+  // 9. Detected URLs: Extract from real text content without inventing fake domains
+  const urlRegex = /https?:\/\/[^\s]+|www\.[^\s]+/gi;
+  const rawMatches = previewText.match(urlRegex) || [];
+  const detected_urls: DetectedURL[] = Array.from(new Set(rawMatches)).map((url) => ({
+    url,
+    risk: classification === 'SCAM' ? 'HIGH' : classification === 'SUSPICIOUS' ? 'MEDIUM' : 'LOW',
+    reason: classification === 'SCAM'
+      ? 'Suspicious external link detected in fraudulent context.'
+      : 'External link detected in message.',
+  }));
+
+  // 10. Input type normalization
+  let input_type: 'text' | 'screenshot' | 'upi' = 'text';
+  if (raw?.input_type === 'upi_simulation' || raw?.input_type === 'upi') {
+    input_type = 'upi';
+  } else if (raw?.input_type === 'screenshot') {
+    input_type = 'screenshot';
+  }
+
+  return {
+    id: raw?.id || `scan-${Date.now()}`,
+    analyzed_at: raw?.analyzed_at || new Date().toISOString(),
+    input_type,
+    input_preview,
+    risk_score,
+    risk_level,
+    classification,
+    scam_type,
+    summary,
+    reasons,
+    actions: {
+      do: doActions,
+      dont: dontActions,
+    },
+    explanation,
+    detected_urls,
+    localized_summary: raw?.localized_summary,
+    localized_actions: raw?.localized_actions,
+  };
 }
 
 /**
- * Analyzes a text message via FastAPI or mock engine
+ * Analyzes a text message via FastAPI /api/analyze
  */
 export async function analyzeMessage(
   text: string,
   language: SupportedLanguage = 'en'
 ): Promise<AnalysisResult> {
   if (USE_MOCK_API) {
-    await delay(1200); // Realistic AI screening duration
+    await delay(1200);
     return getMatchingMockResult(text);
   }
 
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/analyze`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        text,
-        message: text,
-        language,
-      }),
-    });
+  const endpoint = `${API_BASE_URL}/api/analyze`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      message: text,
+      language: language || 'auto',
+    }),
+  });
 
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+  if (!response.ok) {
+    let errorDetail = `HTTP ${response.status} ${response.statusText}`;
+    try {
+      const errorJson = await response.json();
+      if (errorJson?.detail) {
+        errorDetail = typeof errorJson.detail === 'string' ? errorJson.detail : JSON.stringify(errorJson.detail);
+      }
+    } catch {
+      // Non-JSON response
     }
-
-    const data = await response.json();
-    return normalizeBackendResponse(data, text);
-  } catch (error) {
-    console.warn('ScamShield API fetch failed, falling back to local screening engine:', error);
-    await delay(800);
-    return getMatchingMockResult(text);
+    throw new Error(`Analysis failed: ${errorDetail}`);
   }
+
+  const data = await response.json();
+  const result = normalizeBackendResponse(data, text);
+  result.input_type = 'text';
+  return result;
 }
 
 /**
- * Analyzes a screenshot via OCR & Fraud screening
+ * Analyzes a screenshot via OCR & Fraud screening /api/analyze-image
  */
 export async function analyzeScreenshot(
   file: File,
   language: SupportedLanguage = 'en'
 ): Promise<AnalysisResult> {
   if (USE_MOCK_API) {
-    await delay(1800); // Simulate OCR extraction + model inference
+    await delay(1800);
     const mock = { ...mockScamResult };
     mock.id = `ocr-${Date.now()}`;
     mock.input_type = 'screenshot';
-    mock.input_preview = `[Extracted from screenshot "${file.name}"]: "URGENT: SBI NetBanking access will be terminated in 24 hrs. Complete KYC verification: sbi-kyc-update.xyz"`;
+    mock.input_preview = `[Extracted from screenshot "${file.name}"]: "URGENT: Complete KYC verification immediately."`;
     return mock;
   }
 
-  try {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('language', language);
+  const formData = new FormData();
+  formData.append('file', file);
 
-    const response = await fetch(`${API_BASE_URL}/api/analyze-screenshot`, {
-      method: 'POST',
-      body: formData,
-    });
+  // Send language as Query parameter to match FastAPI route: language: str = Query("auto")
+  const langParam = encodeURIComponent(language || 'auto');
+  const endpoint = `${API_BASE_URL}/api/analyze-image?language=${langParam}`;
 
-    if (!response.ok) {
-      throw new Error(`Screenshot API error: ${response.status}`);
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let errorDetail = `HTTP ${response.status} ${response.statusText}`;
+    try {
+      const errorJson = await response.json();
+      if (errorJson?.detail) {
+        errorDetail = typeof errorJson.detail === 'string' ? errorJson.detail : JSON.stringify(errorJson.detail);
+      }
+    } catch {
+      // Non-JSON response
     }
-
-    const data = await response.json();
-    const result = normalizeBackendResponse(data, file.name);
-    result.input_type = 'screenshot';
-    return result;
-  } catch (error) {
-    console.warn('Screenshot API unavailable, using local OCR simulation:', error);
-    await delay(1200);
-    const mock = { ...mockScamResult };
-    mock.id = `ocr-${Date.now()}`;
-    mock.input_type = 'screenshot';
-    mock.input_preview = `[OCR Text from "${file.name}"]: "SBI KYC Update required. Visit sbi-kyc-update.xyz immediately."`;
-    return mock;
+    throw new Error(`Screenshot analysis failed: ${errorDetail}`);
   }
+
+  const data = await response.json();
+  const result = normalizeBackendResponse(data, file.name);
+  result.input_type = 'screenshot';
+  return result;
 }
 
 /**
- * Analyzes a simulated UPI Collect request
+ * Analyzes a simulated UPI Collect request via FastAPI /api/analyze-upi
  */
 export async function analyzeUPIRequest(
   amount: string,
   vpa: string,
   note: string,
-  language: SupportedLanguage = 'en'
+  senderName: string = 'Unknown Sender',
+  _language: SupportedLanguage = 'en'
 ): Promise<AnalysisResult> {
-  const combined = `UPI Collect Request: ${amount} INR from ${vpa} with note "${note}"`;
+  const combinedMessage = note
+    ? `${note} (VPA: ${vpa})`
+    : `Payment request from ${vpa}`;
 
   if (USE_MOCK_API) {
     await delay(1200);
     const mock = { ...mockUpiCollectScamResult };
     mock.id = `upi-${Date.now()}`;
-    mock.input_preview = combined;
+    mock.input_preview = `UPI Collect: ₹${amount} from ${senderName} (${vpa})`;
     return mock;
   }
 
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/analyze-upi`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        amount,
-        upi_id: vpa,
-        note,
-        message: combined,
-        language,
-      }),
-    });
+  const numericAmount = parseFloat(amount.replace(/[^0-9.]/g, '')) || 0;
+  const endpoint = `${API_BASE_URL}/api/analyze-upi`;
 
-    if (!response.ok) {
-      throw new Error(`UPI API error: ${response.status}`);
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      sender_name: senderName || 'Unknown Sender',
+      amount: numericAmount,
+      message: combinedMessage,
+      request_type: 'collect',
+    }),
+  });
+
+  if (!response.ok) {
+    let errorDetail = `HTTP ${response.status} ${response.statusText}`;
+    try {
+      const errorJson = await response.json();
+      if (errorJson?.detail) {
+        errorDetail = typeof errorJson.detail === 'string' ? errorJson.detail : JSON.stringify(errorJson.detail);
+      }
+    } catch {
+      // Non-JSON response
     }
-
-    const data = await response.json();
-    const result = normalizeBackendResponse(data, combined);
-    result.input_type = 'upi';
-    return result;
-  } catch (error) {
-    console.warn('UPI API unavailable, using simulated model:', error);
-    await delay(1000);
-    const mock = { ...mockUpiCollectScamResult };
-    mock.id = `upi-${Date.now()}`;
-    mock.input_preview = combined;
-    return mock;
+    throw new Error(`UPI analysis failed: ${errorDetail}`);
   }
+
+  const data = await response.json();
+  const result = normalizeBackendResponse(data, combinedMessage);
+  result.input_type = 'upi';
+  return result;
 }

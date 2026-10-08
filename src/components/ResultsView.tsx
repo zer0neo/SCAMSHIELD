@@ -44,7 +44,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   const isScam = result.classification === 'SCAM';
   const isSuspicious = result.classification === 'SUSPICIOUS';
   const isSafe = result.classification === 'SAFE';
-  const isHighRisk = result.risk_score > 60;
+  const isHighRisk = result.classification === 'SCAM' || result.risk_score >= 70;
 
   // Localized summary text
   const localizedSummary =
