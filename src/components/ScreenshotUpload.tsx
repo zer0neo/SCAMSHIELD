@@ -94,12 +94,90 @@ export const ScreenshotUpload: React.FC<ScreenshotUploadProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
+  const loadSampleScreenshot = (type: 'sbi' | 'upi') => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 360;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    if (type === 'sbi') {
+      ctx.fillStyle = '#070B14';
+      ctx.fillRect(0, 0, 640, 360);
+      ctx.fillStyle = '#111D35';
+      ctx.fillRect(30, 35, 580, 290);
+      ctx.strokeStyle = '#EF4444';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(30, 35, 580, 290);
+      ctx.fillStyle = '#38BDF8';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText('💬 Incoming SMS from: AX-SBIINB', 55, 80);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '16px sans-serif';
+      ctx.fillText('Dear SBI User, your NetBanking access is expired today.', 55, 130);
+      ctx.fillText('Update your PAN card immediately to avoid account block:', 55, 165);
+      ctx.fillStyle = '#EF4444';
+      ctx.font = 'bold 17px monospace';
+      ctx.fillText('https://sbi-kyc-update.xyz/verify', 55, 215);
+      ctx.fillStyle = '#94A3B8';
+      ctx.font = '13px sans-serif';
+      ctx.fillText('Time: Today, 11:42 AM • Urgent Action Required', 55, 265);
+    } else {
+      ctx.fillStyle = '#070B14';
+      ctx.fillRect(0, 0, 640, 360);
+      ctx.fillStyle = '#111D35';
+      ctx.fillRect(30, 35, 580, 290);
+      ctx.strokeStyle = '#F59E0B';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(30, 35, 580, 290);
+      ctx.fillStyle = '#A855F7';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText('📱 PhonePe Collect Request', 55, 80);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 28px sans-serif';
+      ctx.fillText('₹ 4,999.00', 55, 135);
+      ctx.fillStyle = '#CBD5E1';
+      ctx.font = '16px sans-serif';
+      ctx.fillText('From: Rahul Sharma (rahul@xyzbank)', 55, 185);
+      ctx.fillStyle = '#F59E0B';
+      ctx.font = 'italic 15px sans-serif';
+      ctx.fillText('Note: "Approve this collect request to claim refund"', 55, 230);
+    }
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const fileName = type === 'sbi' ? 'sbi_kyc_phishing_sms.png' : 'phonepe_fake_refund.png';
+        const file = new File([blob], fileName, { type: 'image/png' });
+        validateAndSetFile(file);
+      }
+    }, 'image/png');
+  };
+
   return (
     <div className="space-y-5">
       {/* OCR Educational Notice */}
       <div className="flex items-center gap-2.5 p-3.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-200 text-xs sm:text-sm">
         <Sparkles className="w-4 h-4 text-sky-400 shrink-0" />
         <span>{t.screenshotOcrNote}</span>
+      </div>
+
+      {/* 1-Click Sample Screenshot Bar for Instant Hackathon Demos */}
+      <div className="flex items-center gap-2 flex-wrap text-xs bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+        <span className="text-slate-400 font-semibold">1-Click Demo Screenshots:</span>
+        <button
+          type="button"
+          onClick={() => loadSampleScreenshot('sbi')}
+          className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 hover:text-white hover:border-sky-500 transition font-medium"
+        >
+          📸 Fake SBI KYC SMS
+        </button>
+        <button
+          type="button"
+          onClick={() => loadSampleScreenshot('upi')}
+          className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 hover:text-white hover:border-sky-500 transition font-medium"
+        >
+          📸 PhonePe Fake Refund Request
+        </button>
       </div>
 
       {/* Hidden file input */}
