@@ -1,11 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   RotateCcw,
   Copy,
   Download,
   Check,
+  Volume2,
+  VolumeX,
+  AlertOctagon,
+  AlertTriangle,
+  ShieldCheck,
 } from 'lucide-react';
+import confetti from 'canvas-confetti';
 import { AnalysisResult, SupportedLanguage } from '../types/analysis';
 import { translations } from '../translations/uiTranslations';
 import { RiskScore } from './RiskScore';
@@ -32,9 +38,12 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   onAnalyzeAnother,
 }) => {
   const [copiedReport, setCopiedReport] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const t = translations[currentLanguage];
 
   const isScam = result.classification === 'SCAM';
+  const isSuspicious = result.classification === 'SUSPICIOUS';
+  const isSafe = result.classification === 'SAFE';
   const isHighRisk = result.risk_score > 60;
 
   // Localized summary text
@@ -44,6 +53,58 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
       : currentLanguage === 'hi' && result.localized_summary?.hindi
       ? result.localized_summary.hindi
       : result.summary;
+
+  // Scroll to top and trigger celebratory micro-interaction for safe results
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (isSafe) {
+      try {
+        confetti({
+          particleCount: 60,
+          spread: 70,
+          origin: { y: 0.5 },
+        });
+      } catch {
+        // Safe fallback
+      }
+    }
+
+    return () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [result.id, isSafe]);
+
+  // Voice Assistant (TTS) for elderly and vernacular accessibility
+  const toggleSpeech = () => {
+    if (!('speechSynthesis' in window)) return;
+
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+
+    let speechText = '';
+    if (currentLanguage === 'kn') {
+      speechText = `${isScam ? 'ಎಚ್ಚರಿಕೆ. ಇದು ಮೋಸದ ಸಂದೇಶ.' : isSuspicious ? 'ಗಮನಿಸಿ. ಇದು ಸಂಶಯಾಸ್ಪದ ಸಂದೇಶ.' : 'ಸುರಕ್ಷಿತ.'} ${localizedSummary}. ${result.actions.dont[0] || ''}`;
+    } else if (currentLanguage === 'hi') {
+      speechText = `${isScam ? 'सावधान. यह धोखाधड़ी वाला संदेश है.' : isSuspicious ? 'ध्यान दें. यह संदिग्ध संदेश है.' : 'सुरक्षित.'} ${localizedSummary}. ${result.actions.dont[0] || ''}`;
+    } else {
+      speechText = `${isScam ? 'Warning. Scam detected.' : isSuspicious ? 'Caution. Suspicious message.' : 'Safe message.'} ${localizedSummary}. ${result.actions.dont[0] || ''}`;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(speechText);
+    utterance.lang = currentLanguage === 'kn' ? 'kn-IN' : currentLanguage === 'hi' ? 'hi-IN' : 'en-IN';
+    utterance.rate = 0.95;
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    setIsSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
 
   const handleCopyReport = () => {
     const reportText = `
@@ -93,12 +154,99 @@ Report generated via ScamShield: AI-powered Vernacular Scam Protection
       transition={{ duration: 0.5, ease: 'easeOut' }}
       className="space-y-8 py-8 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8"
     >
+      {/* Elderly-Friendly Immediate Direct Verdict Banner */}
+      <div
+        className={`p-4 sm:p-5 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left shadow-2xl transition-all ${
+          isScam
+            ? 'bg-rose-600 text-white shadow-rose-950/60 ring-2 ring-rose-400'
+            : isSuspicious
+            ? 'bg-amber-500 text-slate-950 shadow-amber-950/40 ring-2 ring-amber-300'
+            : 'bg-emerald-600 text-white shadow-emerald-950/40 ring-2 ring-emerald-400'
+        }`}
+      >
+        <div className="flex items-center gap-3.5">
+          <div className="p-2 rounded-xl bg-black/15 shrink-0">
+            {isScam && <AlertOctagon className="w-8 h-8 text-white animate-pulse" />}
+            {isSuspicious && <AlertTriangle className="w-8 h-8 text-slate-950" />}
+            {isSafe && <ShieldCheck className="w-8 h-8 text-white" />}
+          </div>
+          <div>
+            <div className="text-base sm:text-lg font-black tracking-wide uppercase">
+              {isScam
+                ? currentLanguage === 'kn'
+                  ? 'ಅಪಾಯ: ಇದು ಮೋಸದ ಸಂದೇಶ! ಹಣ ಕಳುಹಿಸಬೇಡಿ!'
+                  : currentLanguage === 'hi'
+                  ? 'ख़तरा: यह धोखाधड़ी वाला संदेश है! पैसे न भेजें!'
+                  : 'CRITICAL WARNING: FRAUD DETECTED! DO NOT PAY!'
+                : isSuspicious
+                ? currentLanguage === 'kn'
+                  ? 'ಎಚ್ಚರಿಕೆ: ಸಂಶಯಾಸ್ಪದ ಸಂದೇಶ! ಎಚ್ಚರಿಕೆಯಿಂದಿರಿ!'
+                  : currentLanguage === 'hi'
+                  ? 'सावधानी: यह संदिग्ध संदेश है! पुष्टि करें!'
+                  : 'CAUTION: SUSPICIOUS SIGNALS DETECTED!'
+                : currentLanguage === 'kn'
+                ? 'ಸುರಕ್ಷಿತ: ಯಾವುದೇ ತಕ್ಷಣದ ಅಪಾಯ ಕಂಡುಬಂದಿಲ್ಲ.'
+                : currentLanguage === 'hi'
+                ? 'सुरक्षित: कोई तात्कालिक खतरा नहीं मिला।'
+                : 'VERIFIED: NO IMMEDIATE RISK DETECTED.'}
+            </div>
+            <div
+              className={`text-xs font-semibold mt-0.5 ${
+                isSuspicious ? 'text-slate-900' : 'text-white/90'
+              }`}
+            >
+              {isScam
+                ? currentLanguage === 'kn'
+                  ? 'ಯಾವುದೇ ಲಿಂಕ್ ಕ್ಲಿಕ್ ಮಾಡಬೇಡಿ ಅಥವಾ ಯುಪಿಐ ಪಿನ್ ಹಾಕಬೇಡಿ.'
+                  : currentLanguage === 'hi'
+                  ? 'किसी भी लिंक पर क्लिक न करें और न ही यूपीआई पिन डालें।'
+                  : 'Do not click links, share OTP, or enter your UPI PIN under any circumstance.'
+                : isSuspicious
+                ? currentLanguage === 'kn'
+                  ? 'ಹಣ ಪಾವತಿಸುವ ಮುನ್ನ ಅಧಿಕೃತ ಬ್ಯಾಂಕ್ ಮೂಲದಿಂದ ಖಚಿತಪಡಿಸಿಕೊಳ್ಳಿ.'
+                  : currentLanguage === 'hi'
+                  ? 'भुगतान करने से पहले अपने आधिकारिक बैंक से पुष्टि करें।'
+                  : 'Verify independently before approving payments or downloading unknown apps.'
+                : currentLanguage === 'kn'
+                ? 'ಇದು ಸಾಮಾನ್ಯ ಬ್ಯಾಂಕ್ ವಹಿವಾಟಿನ ಸಂದೇಶದಂತೆ ಕಾಣುತ್ತದೆ.'
+                : currentLanguage === 'hi'
+                ? 'यह सामान्य बैंकिंग सूचना प्रतीत होती है।'
+                : 'This matches standard informational banking communication.'}
+            </div>
+          </div>
+        </div>
+
+        {/* Voice Readout Button for Elderly & Non-English Users */}
+        <button
+          type="button"
+          onClick={toggleSpeech}
+          className={`shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition shadow-md active:scale-95 ${
+            isSuspicious
+              ? 'bg-slate-950 text-white hover:bg-slate-900'
+              : 'bg-white text-slate-900 hover:bg-slate-100'
+          }`}
+          title="Voice safety readout"
+        >
+          {isSpeaking ? (
+            <>
+              <VolumeX className="w-4 h-4 text-rose-500 animate-pulse" />
+              <span>{currentLanguage === 'kn' ? 'ಧ್ವನಿ ನಿಲ್ಲಿಸಿ' : currentLanguage === 'hi' ? 'आवाज रोकें' : 'Stop Audio'}</span>
+            </>
+          ) : (
+            <>
+              <Volume2 className="w-4 h-4 text-sky-500" />
+              <span>{currentLanguage === 'kn' ? '🔊 ವಿವರಣೆ ಕೇಳಿ' : currentLanguage === 'hi' ? '🔊 ऑडियो सुनें' : '🔊 Listen to Advice'}</span>
+            </>
+          )}
+        </button>
+      </div>
+
       {/* Top Threat Banner Card */}
       <div
         className={`rounded-3xl border p-6 sm:p-8 backdrop-blur-xl shadow-2xl relative overflow-hidden ${
           isScam
             ? 'bg-gradient-to-br from-slate-900 via-slate-900 to-rose-950/30 border-rose-500/40 shadow-rose-950/40'
-            : result.classification === 'SUSPICIOUS'
+            : isSuspicious
             ? 'bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/30 border-amber-500/40 shadow-amber-950/40'
             : 'bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950/30 border-emerald-500/40 shadow-emerald-950/40'
         }`}
@@ -175,22 +323,7 @@ Report generated via ScamShield: AI-powered Vernacular Scam Protection
         </div>
       </div>
 
-      {/* AI Explanation in Vernacular (English, Kannada, Hindi) */}
-      <AIExplanation
-        explanation={result.explanation}
-        currentLanguage={currentLanguage}
-        onLanguageChange={onLanguageChange}
-      />
-
-      {/* Safety Actions: What to DO & What NOT to do */}
-      <SafetyActions
-        actions={result.actions}
-        localizedActions={result.localized_actions}
-        currentLanguage={currentLanguage}
-        isHighRisk={isHighRisk}
-      />
-
-      {/* Why ScamShield Flagged This */}
+      {/* 2. Why ScamShield Flagged This (Reasons) */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-xl font-bold text-white tracking-tight">
@@ -208,15 +341,30 @@ Report generated via ScamShield: AI-powered Vernacular Scam Protection
         </div>
       </div>
 
-      {/* Explainable Risk Weight Breakdown */}
+      {/* 3. Explainable Risk Weight Breakdown */}
       <RiskBreakdown factors={result.reasons} />
 
-      {/* Detected URLs & Links */}
+      {/* 4. Detected URLs & Suspicious Links */}
       {result.detected_urls && result.detected_urls.length > 0 && (
         <URLAnalysis urls={result.detected_urls} />
       )}
 
-      {/* Emergency Helpline Banner (1930) */}
+      {/* 5. What You MUST NOT Do & Protect Yourself */}
+      <SafetyActions
+        actions={result.actions}
+        localizedActions={result.localized_actions}
+        currentLanguage={currentLanguage}
+        isHighRisk={isHighRisk}
+      />
+
+      {/* 6. AI Explanation in Vernacular (English, Kannada, Hindi) */}
+      <AIExplanation
+        explanation={result.explanation}
+        currentLanguage={currentLanguage}
+        onLanguageChange={onLanguageChange}
+      />
+
+      {/* 7. Emergency Helpline Banner (1930) */}
       <EmergencyHelpline currentLanguage={currentLanguage} />
 
       {/* Action Footer: Analyze Another Message CTA */}

@@ -19,6 +19,7 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 function getMatchingMockResult(input: string): AnalysisResult {
   const lower = input.toLowerCase();
   
+  // KYC Phishing / Bank Impersonation / Urgency
   if (
     lower.includes('kyc') ||
     lower.includes('block') ||
@@ -28,7 +29,17 @@ function getMatchingMockResult(input: string): AnalysisResult {
     lower.includes('sbi') ||
     lower.includes('.xyz') ||
     lower.includes('pan') ||
-    lower.includes('aadhaar')
+    lower.includes('aadhaar') ||
+    lower.includes('केवाईसी') ||
+    lower.includes('ब्लॉक') ||
+    lower.includes('लॉटरी') ||
+    lower.includes('इनाम') ||
+    lower.includes('पैन') ||
+    lower.includes('ಆಧಾರ್') ||
+    lower.includes('ಕೆವೈಸಿ') ||
+    lower.includes('ಬ್ಲಾಕ್') ||
+    lower.includes('ಲಾಟರಿ') ||
+    lower.includes('ಖಾತೆ')
   ) {
     return {
       ...mockScamResult,
@@ -38,13 +49,20 @@ function getMatchingMockResult(input: string): AnalysisResult {
     };
   }
 
+  // UPI Collect / Reverse Debit Fraud
   if (
     lower.includes('collect') ||
     lower.includes('refund') ||
     lower.includes('approve') ||
     lower.includes('upi') ||
     lower.includes('vpa') ||
-    lower.includes('cashback')
+    lower.includes('cashback') ||
+    lower.includes('कलेक्ट') ||
+    lower.includes('रिफंड') ||
+    lower.includes('यूपीआई') ||
+    lower.includes('कಲೆಕ್ಟ್') ||
+    lower.includes('ಮರುಪಾವತಿ') ||
+    lower.includes('ಯುಪಿಐ')
   ) {
     return {
       ...mockUpiCollectScamResult,
@@ -54,13 +72,19 @@ function getMatchingMockResult(input: string): AnalysisResult {
     };
   }
 
+  // Suspicious Shortened URLs & Logistics Pretexts
   if (
     lower.includes('courier') ||
     lower.includes('delivery') ||
     lower.includes('package') ||
     lower.includes('fee') ||
     lower.includes('track') ||
-    lower.includes('bit.ly')
+    lower.includes('bit.ly') ||
+    lower.includes('पार्सल') ||
+    lower.includes('कूरियर') ||
+    lower.includes('डिलीवरी') ||
+    lower.includes('ಪಾರ್ಸೆಲ್') ||
+    lower.includes('ಕೊರಿಯರ್')
   ) {
     return {
       ...mockSuspiciousResult,
@@ -70,11 +94,15 @@ function getMatchingMockResult(input: string): AnalysisResult {
     };
   }
 
+  // Genuine Informational Bank Debit/Credit
   if (
     lower.includes('debited') ||
     lower.includes('credited') ||
     lower.includes('available bal') ||
-    lower.includes('a/c xx')
+    lower.includes('a/c xx') ||
+    lower.includes('डेबिट') ||
+    lower.includes('क्रेडिट') ||
+    lower.includes('ಡೆಬಿಟ್')
   ) {
     return {
       ...mockSafeResult,

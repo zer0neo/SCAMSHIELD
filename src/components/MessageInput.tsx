@@ -56,23 +56,37 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           <span className="text-[11px] text-slate-500">1-Click Demo Scenarios</span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-          {sampleScenarios.map((sample) => (
-            <button
-              key={sample.id}
-              type="button"
-              onClick={() => handleSelectSample(sample.text, sample.id)}
-              className={`text-left p-2.5 rounded-xl border text-xs transition flex flex-col justify-between gap-1 ${
-                activeSampleId === sample.id
-                  ? 'bg-sky-500/15 border-sky-500/50 text-sky-200'
-                  : 'bg-slate-950/70 border-slate-800/80 text-slate-300 hover:border-slate-700 hover:text-white'
-              }`}
-            >
-              <div className="font-semibold truncate">{sample.title}</div>
-              <div className="text-[11px] text-slate-500 line-clamp-1">
-                {sample.category.toUpperCase()} • {sample.text.slice(0, 40)}...
-              </div>
-            </button>
-          ))}
+          {sampleScenarios.map((sample) => {
+            const isFeatured = sample.id === 'sample-sbi-kyc';
+            const isActive = activeSampleId === sample.id;
+
+            return (
+              <button
+                key={sample.id}
+                type="button"
+                onClick={() => handleSelectSample(sample.text, sample.id)}
+                className={`text-left p-2.5 rounded-xl border text-xs transition flex flex-col justify-between gap-1 relative ${
+                  isActive
+                    ? 'bg-sky-500/20 border-sky-400 text-sky-100 shadow-lg shadow-sky-500/20 ring-1 ring-sky-400'
+                    : isFeatured
+                    ? 'bg-rose-950/30 border-rose-500/50 text-rose-200 hover:border-rose-400 hover:bg-rose-900/30'
+                    : 'bg-slate-950/70 border-slate-800/80 text-slate-300 hover:border-slate-700 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <div className="font-semibold truncate">{sample.title}</div>
+                  {isFeatured && !isActive && (
+                    <span className="text-[9px] font-bold uppercase tracking-wider bg-rose-500/20 text-rose-300 px-1.5 py-0.2 rounded border border-rose-500/30 shrink-0">
+                      Target Demo
+                    </span>
+                  )}
+                </div>
+                <div className="text-[11px] text-slate-400 line-clamp-1">
+                  {sample.category.toUpperCase()} • {sample.text.slice(0, 40)}...
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
 
