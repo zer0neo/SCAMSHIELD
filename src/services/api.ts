@@ -19,7 +19,7 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 /**
  * Human-readable mapping for backend scam categories
  */
-const CATEGORY_DISPLAY_MAP: Record<string, string> = {
+const SCAM_CATEGORY_DISPLAY_MAP: Record<string, string> = {
   OTP_PHISHING: 'OTP & Credential Phishing',
   KYC_PHISHING: 'Bank KYC Phishing',
   BANK_IMPERSONATION: 'Bank & Financial Impersonation',
@@ -30,7 +30,7 @@ const CATEGORY_DISPLAY_MAP: Record<string, string> = {
   DELIVERY_SCAM: 'Parcel & Delivery Redirection Trap',
   GOVERNMENT_IMPERSONATION: 'Government Agency Impersonation',
   PHISHING: 'Malicious Link & Phishing Trap',
-  GENERAL_SCAM: 'Suspicious Fraudulent Communication',
+  GENERAL_SCAM: 'Suspicious Communication',
 };
 
 /**
@@ -143,75 +143,107 @@ function getMatchingMockResult(input: string): AnalysisResult {
 /**
  * Normalizes the real backend response into the frontend AnalysisResult shape.
  * Preserves backend as the single source of truth for:
- * - risk_score
- * - verdict (classification)
- * - category (scam_type)
- * - score_breakdown (reasons)
- * - explanation
+ * - verdict (classification: SAFE -> LOW, SUSPICIOUS -> MEDIUM, SCAM -> HIGH)
+ * - risk_score (actual score returned by backend)
+ * - category (mapped safely; neutral for SAFE verdicts, never scam/fraud)
+ * - score_breakdown (preserved without inventing risk factors)
+ * - explanation (sanitized for SAFE verdicts to prevent contradictory warnings)
  * - recommended_action (actions)
  * - extracted_text (input_preview)
  */
 export function normalizeBackendResponse(raw: any, fallbackInput: string): AnalysisResult {
-  // 1. Classification & Verdict: Backend is the source of truth
-  const rawVerdict = String(raw?.verdict || raw?.classification || '').toUpperCase();
-  const classification =
-    rawVerdict === 'SCAM' || rawVerdict === 'SUSPICIOUS' || rawVerdict === 'SAFE'
-      ? rawVerdict
-      : raw?.risk_score >= 70
+  // 1. Classification & Verdict: Backend verdict is the strict source of truth
+  // Never compute classification from risk_score thresholds in the frontend.
+  const rawVerdict = String(raw?.verdict || raw?.classification || '').trim().toUpperCase();
+  const classification: 'SAFE' | 'SUSPICIOUS' | 'SCAM' =
+    rawVerdict === 'SCAM'
       ? 'SCAM'
-      : raw?.risk_score >= 35
+      : rawVerdict === 'SUSPICIOUS'
       ? 'SUSPICIOUS'
       : 'SAFE';
 
-  // 2. Risk score & derived risk level
-  const risk_score = typeof raw?.risk_score === 'number' ? Math.min(100, Math.max(0, raw.risk_score)) : 0;
-  const risk_level = classification === 'SCAM' ? 'HIGH' : classification === 'SUSPICIOUS' ? 'MEDIUM' : 'LOW';
+  // 2. Risk score & derived risk level: Strict 1:1 mapping from backend verdict
+  // SAFE -> LOW, SUSPICIOUS -> MEDIUM, SCAM -> HIGH
+  const risk_score = typeof raw?.risk_score === 'number'
+    ? Math.min(100, Math.max(0, Math.round(raw.risk_score)))
+    : 0;
 
-  // 3. Category / Scam Type
-  const categoryKey = String(raw?.category || raw?.scam_type || '');
-  const scam_type = CATEGORY_DISPLAY_MAP[categoryKey] || categoryKey || (
-    classification === 'SAFE' ? 'Verified Communication' : 'Suspicious Financial Communication'
-  );
+  const risk_level: 'LOW' | 'MEDIUM' | 'HIGH' =
+    classification === 'SCAM'
+      ? 'HIGH'
+      : classification === 'SUSPICIOUS'
+      ? 'MEDIUM'
+      : 'LOW';
 
-  // 4. Input preview & extracted text
-  const previewText = String(raw?.extracted_text || raw?.message || fallbackInput || '');
+  // 3. Input preview & extracted text
+  const previewText = String(raw?.extracted_text || raw?.message || fallbackInput || '').trim();
   const input_preview = previewText.length > 200 ? previewText.slice(0, 200) + '...' : previewText;
 
-  // 5. Reasons / Signal weight breakdown from backend score_breakdown
+  // 4. Category / Scam Type safely mapped
+  // Never use generic scam or fraud fallback values when backend says SAFE.
+  const categoryKey = String(raw?.category || raw?.scam_type || '').trim();
+  const isTransaction =
+    /upi|payment|transaction|transferred|transfer|paid|credited|debited|₹|rs\.?|inr|account|vpa/i.test(previewText) ||
+    /transaction|payment|upi/i.test(categoryKey);
+
+  let scam_type = '';
+  if (classification === 'SAFE') {
+    // Legitimate or general transaction messages get a neutral label
+    if (isTransaction) {
+      scam_type = 'General Transaction';
+    } else if (categoryKey && !categoryKey.includes('SCAM') && !categoryKey.includes('PHISHING')) {
+      scam_type = categoryKey.replace(/_/g, ' ');
+    } else {
+      scam_type = 'General Message';
+    }
+  } else {
+    scam_type =
+      SCAM_CATEGORY_DISPLAY_MAP[categoryKey] ||
+      categoryKey.replace(/_/g, ' ') ||
+      (classification === 'SCAM' ? 'Suspicious Fraudulent Communication' : 'Suspicious Communication');
+  }
+
+  // 5. Reasons / Signal weight breakdown
+  // Backend score_breakdown is the source of truth. Preserve actual backend values.
   let reasons: RiskFactor[] = [];
   if (raw?.score_breakdown && typeof raw.score_breakdown === 'object' && Object.keys(raw.score_breakdown).length > 0) {
     reasons = Object.entries(raw.score_breakdown).map(([title, points]) => {
       const scoreNum = typeof points === 'number' ? points : Number(points) || 0;
       const severity: 'LOW' | 'MEDIUM' | 'HIGH' =
-        scoreNum >= 25 ? 'HIGH' : scoreNum >= 15 ? 'MEDIUM' : 'LOW';
+        classification === 'SAFE'
+          ? 'LOW'
+          : scoreNum >= 25
+          ? 'HIGH'
+          : scoreNum >= 15
+          ? 'MEDIUM'
+          : 'LOW';
       return {
         type: title.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
         title,
-        description: `Backend detector identified "${title}", adding +${scoreNum} risk points.`,
+        description:
+          classification === 'SAFE'
+            ? `Factor evaluated: ${title} (+${scoreNum} pts).`
+            : `Backend detector identified "${title}", adding +${scoreNum} risk points.`,
         severity,
         score: scoreNum,
       };
     });
-  } else if (Array.isArray(raw?.reasons) && raw.reasons.length > 0) {
+  } else if (classification !== 'SAFE' && Array.isArray(raw?.reasons) && raw.reasons.length > 0) {
     reasons = raw.reasons;
-  } else if (Array.isArray(raw?.red_flags) && raw.red_flags.length > 0) {
+  } else if (classification !== 'SAFE' && Array.isArray(raw?.red_flags) && raw.red_flags.length > 0) {
+    const defaultPoints = raw.red_flags.length > 0
+      ? Math.max(5, Math.round(risk_score / raw.red_flags.length))
+      : 10;
     reasons = raw.red_flags.map((flag: string) => ({
       type: flag.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
       title: flag,
       description: `Indicator flagged by threat model: ${flag}.`,
       severity: classification === 'SCAM' ? 'HIGH' : 'MEDIUM',
-      score: classification === 'SCAM' ? 20 : 10,
+      score: defaultPoints,
     }));
   } else if (classification === 'SAFE') {
-    reasons = [
-      {
-        type: 'safe_verified',
-        title: 'No Immediate Threat Signals',
-        description: 'No known scam keywords, coercive urgency, phishing links, or unverified requests were detected.',
-        severity: 'LOW',
-        score: 0,
-      },
-    ];
+    // If verdict is SAFE and score_breakdown is empty, reasons must be empty (do not invent suspicious red flags)
+    reasons = [];
   } else {
     reasons = [
       {
@@ -238,7 +270,7 @@ export function normalizeBackendResponse(raw: any, fallbackInput: string): Analy
       'Always verify unsolicited banking requests through official banking apps.',
     ];
     dontActions = [
-      'Do not share net banking passwords, MPIN, or card CVVs with anyone.',
+      'Never share your net banking passwords, UPI PIN, MPIN, or OTP with anyone.',
     ];
   } else {
     dontActions = [
@@ -252,30 +284,83 @@ export function normalizeBackendResponse(raw: any, fallbackInput: string): Analy
     ];
   }
 
-  // 7. Explanation: Ensure MultilingualExplanation always has valid string content for all keys
+  // 7. Explanation: Ensure MultilingualExplanation has appropriate content
   const rawExplanation = typeof raw?.explanation === 'string' ? raw.explanation.trim() : '';
+  const isContradictorySuspiciousWording =
+    /suspicious|fraudulent|threat|trap|deceptive|phishing/i.test(rawExplanation);
+
+  let englishExp = '';
+  let kannadaExp = '';
+  let hindiExp = '';
+
+  if (classification === 'SAFE') {
+    if (rawExplanation && !isContradictorySuspiciousWording) {
+      englishExp = rawExplanation;
+      kannadaExp = 'ಬ್ಯಾಕೆಂಡ್‌ನಿಂದ ಸಂದೇಶವನ್ನು ಪರಿಶೀಲಿಸಲಾಗಿದ್ದು, ಸುರಕ್ಷಿತವಾಗಿದೆ ಎಂದು ದೃಢಪಡಿಸಲಾಗಿದೆ.';
+      hindiExp = 'संदेश का विश्लेषण किया गया है और यह सुरक्षित पाया गया है।';
+    } else {
+      englishExp = isTransaction
+        ? 'This message was analyzed and verified as a legitimate transaction notification. No threat or fraudulent indicators were detected.'
+        : 'This message was analyzed and verified as safe. No malicious links, credential harvesting, or fraudulent patterns were detected.';
+      kannadaExp = isTransaction
+        ? 'ಈ ಸಂದೇಶವು ಅಧಿಕೃತ ವಹಿವಾಟು ಸೂಚನೆಯಾಗಿದ್ದು ಸುರಕ್ಷಿತವಾಗಿದೆ ಎಂದು ದೃಢಪಡಿಸಲಾಗಿದೆ. ಯಾವುದೇ ಮೋಸದ ಸೂಚನೆಗಳು ಕಂಡುಬಂದಿಲ್ಲ.'
+        : 'ಈ ಸಂದೇಶವನ್ನು ಪರಿಶೀಲಿಸಲಾಗಿದ್ದು ಸುರಕ್ಷಿತವಾಗಿದೆ ಎಂದು ದೃಢಪಡಿಸಲಾಗಿದೆ. ಯಾವುದೇ ಮೋಸದ ಸೂಚನೆಗಳು ಕಂಡುಬಂದಿಲ್ಲ.';
+      hindiExp = isTransaction
+        ? 'यह संदेश एक वैध लेन-देन की सूचना है और सुरक्षित पाया गया है। इसमें धोखाधड़ी का कोई संकेत नहीं मिला है।'
+        : 'यह संदेश सुरक्षित पाया गया है। इसमें किसी भी प्रकार की धोखाधड़ी या संदिग्ध गतिविधि के संकेत नहीं मिले हैं।';
+    }
+  } else {
+    englishExp = rawExplanation || 'Threat screening completed by the backend detector.';
+    kannadaExp = 'ಬ್ಯಾಕೆಂಡ್‌ನಿಂದ ಬೆದರಿಕೆ ತಪಾಸಣೆ ಪೂರ್ಣಗೊಂಡಿದೆ.';
+    hindiExp = 'संदेश का विश्लेषण बैकएंड डिटेक्टर द्वारा पूरा कर लिया गया है।';
+  }
+
   const explanation = (raw?.explanation && typeof raw.explanation === 'object')
     ? {
-        english: raw.explanation.english || rawExplanation || 'Threat screening completed.',
-        kannada: raw.explanation.kannada || rawExplanation || 'ಬ್ಯಾಕೆಂಡ್‌ನಿಂದ ಬೆದರಿಕೆ ತಪಾಸಣೆ ಪೂರ್ಣಗೊಂಡಿದೆ.',
-        hindi: raw.explanation.hindi || rawExplanation || 'धोखाधड़ी जांच पूरी हो गई है।',
+        english: raw.explanation.english || englishExp,
+        kannada: raw.explanation.kannada || kannadaExp,
+        hindi: raw.explanation.hindi || hindiExp,
       }
     : {
-        english: rawExplanation || 'Threat screening completed by the backend detector.',
-        kannada: rawExplanation || 'ಬ್ಯಾಕೆಂಡ್‌ನಿಂದ ಬೆದರಿಕೆ ತಪಾಸಣೆ ಪೂರ್ಣಗೊಂಡಿದೆ.',
-        hindi: rawExplanation || 'संदेश का विश्लेषण बैकएंड डिटेक्टर द्वारा पूरा कर लिया गया है।',
+        english: englishExp,
+        kannada: kannadaExp,
+        hindi: hindiExp,
       };
 
   // 8. Summary: Clear, human-readable summary
-  const summary = raw?.summary || rawExplanation || (
-    classification === 'SCAM'
-      ? `Critical warning: ${scam_type} detected with a threat risk score of ${risk_score}/100.`
-      : classification === 'SUSPICIOUS'
-      ? `Caution: Suspicious patterns detected with a threat risk score of ${risk_score}/100.`
-      : `Verified: Standard communication with a low threat risk score of ${risk_score}/100.`
+  let summary = '';
+  if (classification === 'SAFE') {
+    if (raw?.summary && !/suspicious|fraudulent|threat/i.test(raw.summary)) {
+      summary = raw.summary;
+    } else {
+      summary = isTransaction
+        ? 'Verified: Legitimate transaction notification with no threat indicators detected.'
+        : 'Verified: Standard communication with no threat indicators detected.';
+    }
+  } else {
+    summary = raw?.summary || rawExplanation || (
+      classification === 'SCAM'
+        ? `Critical warning: ${scam_type} detected with a threat risk score of ${risk_score}/100.`
+        : `Caution: Suspicious patterns detected with a threat risk score of ${risk_score}/100.`
+    );
+  }
+
+  // 9. Localized summary for vernacular display
+  const localized_summary = raw?.localized_summary || (
+    classification === 'SAFE'
+      ? {
+          english: summary,
+          kannada: isTransaction
+            ? 'ದೃಢೀಕರಿಸಲಾಗಿದೆ: ಯಾವುದೇ ಬೆದರಿಕೆ ಸೂಚನೆಗಳಿಲ್ಲದ ಸಾಮಾನ್ಯ ವಹಿವಾಟು ಸಂದೇಶ.'
+            : 'ದೃಢೀಕರಿಸಲಾಗಿದೆ: ಯಾವುದೇ ಬೆದರಿಕೆ ಸೂಚನೆಗಳಿಲ್ಲದ ಸಾಮಾನ್ಯ ಸಂದೇಶ.',
+          hindi: isTransaction
+            ? 'सत्यापित: कोई संदिग्ध संकेत नहीं मिले, यह एक वैध लेन-देन संदेश है।'
+            : 'सत्यापित: कोई संदिग्ध संकेत नहीं मिले, यह एक सामान्य संदेश है।',
+        }
+      : undefined
   );
 
-  // 9. Detected URLs: Extract from real text content without inventing fake domains
+  // 10. Detected URLs: Extract from real text content without inventing fake domains
   const urlRegex = /https?:\/\/[^\s]+|www\.[^\s]+/gi;
   const rawMatches = previewText.match(urlRegex) || [];
   const detected_urls: DetectedURL[] = Array.from(new Set(rawMatches)).map((url) => ({
@@ -283,10 +368,12 @@ export function normalizeBackendResponse(raw: any, fallbackInput: string): Analy
     risk: classification === 'SCAM' ? 'HIGH' : classification === 'SUSPICIOUS' ? 'MEDIUM' : 'LOW',
     reason: classification === 'SCAM'
       ? 'Suspicious external link detected in fraudulent context.'
-      : 'External link detected in message.',
+      : classification === 'SUSPICIOUS'
+      ? 'External link detected in suspicious message.'
+      : 'Standard external link in verified message.',
   }));
 
-  // 10. Input type normalization
+  // 11. Input type normalization
   let input_type: 'text' | 'screenshot' | 'upi' = 'text';
   if (raw?.input_type === 'upi_simulation' || raw?.input_type === 'upi') {
     input_type = 'upi';
@@ -311,7 +398,7 @@ export function normalizeBackendResponse(raw: any, fallbackInput: string): Analy
     },
     explanation,
     detected_urls,
-    localized_summary: raw?.localized_summary,
+    localized_summary,
     localized_actions: raw?.localized_actions,
   };
 }
